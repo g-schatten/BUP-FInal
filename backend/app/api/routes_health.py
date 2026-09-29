@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 
 from app import metrics, simulator_client, state_cache
+from app.auth import auth_required
 
 router = APIRouter()
 
@@ -40,3 +41,8 @@ async def health():
 @router.get("/metrics")
 async def metrics_endpoint():
     return PlainTextResponse(metrics.render_prometheus())
+
+
+@router.get("/api/config")
+async def config():
+    return {"auth_required": auth_required()}

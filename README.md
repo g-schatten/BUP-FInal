@@ -11,21 +11,27 @@ BUP Fuel Supply Simulator (real, organizer image, /v1/* + /admin/*)
         │  REST (source of truth) + SSE (re-fetch hint)
         ▼
 backend/ (FastAPI)
-  simulator_client  → typed wrapper, retry+backoff on 503 FAULT_INJECTED
+  simulator_client  → typed wrapper, retries w/ backoff on 503 FAULT_INJECTED, concurrency cap
   state_cache       → short-TTL cache; serves last-known-good on stale/faulted reads
+  auth              → OPERATOR_TOKEN guard on shipments + /admin/*; reads stay open
+  decision_log      → context each shipment was approved under + rejected attempts (in-memory)
+  views             → regional demand, incoming supply, disruptions, system alerts, decision history
   intelligence/
-    forecast        → exponential-smoothed demand, stockout probability
+    forecast        → profile-aware demand model (hour-of-day × region × live multiplier,
+                      calibrated to observed demand), tick-by-tick projection incl. inbound shipments
     detect          → disruption signals from live station/route/depot status
-    allocate        → constrained greedy allocation recommender
+    allocate        → coordinated planner: most-urgent-first, shared depot stock + dispatch budget,
+                      returns per-depot budgets alongside the plan
     fallback        → dumb rule-based policy used only when the smart path fails
   api/
     routes_state    → /api/stations /api/depots /api/demand-history/{id} /api/events
-    routes_decision → /api/predict/{id} /api/alerts /api/allocations/apply
-    routes_health   → /health /metrics
+    routes_decision → /api/dashboard (one call → plan+views) /api/predict/{id} /api/alerts /api/allocations/apply
+    routes_health   → /health /metrics /api/config
     routes_admin    → passthrough to simulator /admin/* (self-test + demo control only)
         │  JSON
         ▼
-frontend/ (React + Vite) — operator dashboard: inventory, alerts, allocation approval
+frontend/ (React + Vite) — 5-tab operator dashboard (Overview, Allocation plan,
+  Supply & demand, Disruptions & alerts, Decision history)
 ```
 
 ## Live deployment (Azure)
@@ -46,6 +52,19 @@ The simulator is paused and pre-stepped to tick 45 so the dashboard shows popula
 ```bash
 az group delete --name bup-fuel-platform-rg --yes --no-wait
 ```
+
+### CI/CD
+
+[`.github/workflows/deploy-azure.yml`](.github/workflows/deploy-azure.yml) — on every push to `main`: typecheck + a backend import smoke test, then build and push both images to ACR, redeploy the backend and frontend container instances (the simulator is untouched — its state persists across app deploys), then poll both public URLs until they answer 200 (fails the run if they don't within ~2 minutes).
+
+**One-time setup** (uses a resource-group-scoped service principal — `Contributor` on `bup-fuel-platform-rg` only, not the subscription):
+```bash
+gh auth login   # once, if not already
+bash .azure/register-github-secrets.sh
+```
+This registers `AZURE_CREDENTIALS`, `ACR_LOGIN_SERVER`, `ACR_USERNAME`, `ACR_PASSWORD` as GitHub repo secrets from the local (gitignored) `.azure/` credential files — nothing is pasted or committed. `OPERATOR_TOKEN` is optional; unset, writes stay open (as the deployment is now).
+
+The DNS labels (`bup-backend-16491`, `bup-app-16491`, `bup-sim-16491`) are hardcoded in the workflow to match the containers already running — if you ever recreate them under different labels, update the workflow's `env:` block to match.
 
 ## Run it
 
@@ -79,6 +98,32 @@ curl -X POST http://localhost:8080/api/admin/reset          # wipe back to basel
 
 Leaving it in `running` mode is possible (`SIMULATOR_START_MODE=running`) but burns through the simulator's finite 22-arrival supply schedule in real time — fine for a passive demo, wasteful to leave running unattended during development.
 
+## Decision intelligence
+
+**Forecast.** The simulator's demand model is published in the integration guide (§8.5–8.6), and we checked it against a full simulated day of observed history: per 15-minute tick, demand is `daily profile liters ÷ 96 × hour-of-day factor × region demand_factor × station demand_multiplier`, plus ~10% noise. For every station × fuel we project that tick by tick across 24 hours, so a forecast made at night doesn't assume daytime demand all day. The projection includes shipments already `PENDING`/`IN_TRANSIT` to the station, and uses `/v1/events` to know when an active demand spike ends. A calibration ratio learned from the last 8h of observed demand scales the model (it sits at ~0.98–1.02 in the baseline scenario); if the organizers change a profile, the forecast corrects itself instead of staying silently wrong.
+
+**Allocation.** Every projected shortage is planned together against one shared budget per depot: fuel on hand per fuel type, and dispatch capacity left this tick (shared across fuels, net of shipments already `PENDING` this tick — in-transit ones don't count, verified against the simulator). The most urgent station claims capacity first, and each assignment is subtracted before the next is planned, so every recommendation on screen is feasible alongside the ones ranked above it — applying them in any order gets 201s, not 409s. Route choice weighs urgency against arrival time: prefer a route that lands before the projected stockout (fastest first), otherwise take the fastest and flag it as arriving late. Alerts that get nothing this tick say why (e.g. depot dispatch budget already allocated).
+
+## Operator dashboard
+
+`GET /api/dashboard` returns everything the frontend renders in one call (built from a single pass over the simulator, so adding views cost no extra simulator calls):
+
+| Tab | Shows |
+|---|---|
+| **Overview** | Station/depot inventory, demand trend on click, system alerts, stockout alerts with expected impact |
+| **Allocation plan** | Full ranked plan, expected impact before → after per shipment and for the plan as a whole, depot dispatch/stock budgets, unserved shortages with the reason, "Approve all" |
+| **Supply & demand** | Regional demand (now / 24h / coverage hours / projected unmet), incoming depot deliveries, shipments in transit |
+| **Disruptions & alerts** | System alerts (deduplicated), disruptions detected from live state, the crisis-event feed |
+| **Decision history** | Every shipment joined with the context it was approved under (risk, expected impact, priority), plus rejected attempts |
+
+Approving a shipment shows the result explicitly — accepted (with the shipment id and expected impact) or rejected (with the simulator's reason) — rather than silently refreshing. A rejection is recorded either way: `degraded_mode: true` only for a real outage (`FAULT_INJECTED`/`UNREACHABLE`); a business rule (e.g. `ROUTE_DISRUPTED`) is reported as itself, not conflated with a system failure — verified live for both cases.
+
+## Security
+
+Reads are open; writes (`POST /api/allocations/apply`, `/api/admin/*`) require `X-Operator-Token` when `OPERATOR_TOKEN` is set (unset = open, for local dev). `/api/admin/step` is capped at 200 ticks per call. `fuel_type` is validated against the 3 real enum values. Verified live: no/wrong token → 401, correct token → 200, `step?n=99999` → 422.
+
+**Not yet done:** the public Azure deployment doesn't have `OPERATOR_TOKEN` set — see `tasks/todo.md`.
+
 ## Resilience
 
 The simulator can inject real faults (not simulated by us) via its own admin API, which our app must survive:
@@ -102,23 +147,26 @@ Other fault types available: `latency`, `error_rate`, `stale_data`, `stream_disc
 
 ## Load testing
 
-`python3 loadtest/decision_api.py` — hammers `GET /api/alerts`, the decision API that runs the full forecast → detect → allocate path per station×fuel on every call (the realistic worst case).
+`python3 loadtest/decision_api.py` — hammers `GET /api/alerts`, the decision API that runs the full forecast → detect → plan path for every station×fuel on every call (the realistic worst case).
 
-**Finding, not just a benchmark:** the first run, at 20 concurrent requests, saturated the *simulator's own* SQLAlchemy connection pool (5 + 10 overflow = 15 max) and required restarting the simulator container to recover — each `/api/alerts` call was making 12 sequential simulator calls, so 20 concurrent requests alone meant ~20 simultaneous simulator connections, already over the ceiling. Two fixes:
+**Finding, not just a benchmark:** the first run, at 20 concurrent requests, saturated the *simulator's own* SQLAlchemy connection pool (5 + 10 overflow = 15 max) and required restarting the simulator container to recover — each `/api/alerts` call was making 12 sequential simulator calls, so 20 concurrent requests alone meant ~20 simultaneous simulator connections, already over the ceiling. Fixes:
 
-1. **Parallelized** the 12 per-request simulator calls (`asyncio.gather` instead of a sequential loop) — cut single-request latency from ~2.3s to ~0.6s.
+1. **Parallelized** the per-request simulator calls (`asyncio.gather` instead of a sequential loop).
 2. **Added a semaphore** (`_SIMULATOR_CONCURRENCY_LIMIT = asyncio.Semaphore(10)`, [`simulator_client.py`](backend/app/simulator_client.py)) capping our *total* concurrent outbound requests to the simulator regardless of caller concurrency — a bulkhead so we can never be the one to trigger that saturation again, no matter how many operators poll the dashboard at once.
+3. **Fewer calls per request.** The profile-aware forecast fetches demand history once per station (4 calls) instead of once per station×fuel (12).
 
-Final measured numbers (concurrency 8, 15s, post-fix, 0 errors, simulator stayed healthy throughout):
+Measured numbers (concurrency 8, 15s, 0 errors, simulator stayed healthy throughout):
 
-| Metric | Value |
-|---|---|
-| Throughput | 3.5 req/s |
-| Avg latency | 2419 ms |
-| p50 | 1959 ms |
-| p95 | 4361 ms |
-| p99 | 5175 ms |
-| Error rate | 0% |
-| Resource usage | backend ~0.3% CPU / 105–130 MiB RAM; simulator ~1–2% CPU / 65–80 MiB RAM (`docker stats`) |
+| Metric | First fixed version | Current |
+|---|---|---|
+| Throughput | 3.5 req/s | 6.6 req/s |
+| Avg latency | 2419 ms | 1242 ms |
+| p50 | 1959 ms | 1099 ms |
+| p95 | 4361 ms | 2329 ms |
+| p99 | 5175 ms | 3817 ms |
+| Single isolated request | ~0.6 s | ~0.44 s |
+| Error rate | 0% | 0% |
 
-Latency under concurrency is still dominated by the semaphore intentionally throttling us to protect the shared simulator (a single isolated request is ~0.6s) — this is the correct trade-off (bounded queuing beats cascading failure), not an unaddressed bottleneck, and is the honest headline result: **the system degrades its own throughput under load rather than taking the shared simulator down.**
+Resource usage stays small: backend ~0.3% CPU / 105–130 MiB RAM, simulator ~1–2% CPU / 65–80 MiB RAM (`docker stats`).
+
+Latency under concurrency is dominated by the semaphore intentionally throttling us to protect the shared simulator — the correct trade-off (bounded queuing beats cascading failure), and the honest headline result: **the system degrades its own throughput under load rather than taking the shared simulator down.**

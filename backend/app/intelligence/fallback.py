@@ -10,6 +10,7 @@ allocation policy".
 FALLBACK_QUANTITY_L = 3000
 LOW_INVENTORY_RATIO = 0.3
 FUEL_TYPES = ["DIESEL", "PETROL", "OCTANE"]
+USABLE_DEPOT_STATUSES = ("OPEN", "CONSTRAINED")
 
 
 def fallback_alerts(stations: list[dict], depots_by_id: dict, routes: list[dict]) -> list[dict]:
@@ -25,7 +26,7 @@ def fallback_alerts(stations: list[dict], depots_by_id: dict, routes: list[dict]
             recommendation = None
             if route:
                 depot = depots_by_id.get(route["source_depot_id"])
-                if depot and depot["inventory"].get(fuel, 0) > 0:
+                if depot and depot["status"] in USABLE_DEPOT_STATUSES and depot["inventory"].get(fuel, 0) > 0:
                     recommendation = {
                         "route_id": route["id"],
                         "source_depot_id": depot["id"],

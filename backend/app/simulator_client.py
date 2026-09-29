@@ -17,6 +17,7 @@ SIMULATOR_BASE_URL = os.environ.get("SIMULATOR_BASE_URL", "http://localhost:8000
 
 _RETRYABLE_STATUS = {503}
 _MAX_RETRIES = 2
+_BACKOFF_S = 0.2  # linear: 0.2s, then 0.4s — rides out short blips without stalling a request for long
 
 # Bulkhead: the simulator's own SQLAlchemy pool caps at 15 connections (5 + 10
 # overflow) — a load test at 20 concurrent /api/alerts (each holding 1 connection
@@ -57,6 +58,8 @@ async def _request(method: str, path: str, *, params: dict | None = None, json: 
         async with httpx.AsyncClient(base_url=SIMULATOR_BASE_URL, timeout=10.0) as client:
             last_exc: Exception | None = None
             for attempt in range(_MAX_RETRIES + 1):
+                if attempt:
+                    await asyncio.sleep(_BACKOFF_S * attempt)
                 try:
                     resp = await client.request(method, path, params=params, json=json)
                 except httpx.RequestError as e:
@@ -77,6 +80,8 @@ async def _request_with_staleness(path: str) -> tuple[dict, bool]:
         async with httpx.AsyncClient(base_url=SIMULATOR_BASE_URL, timeout=10.0) as client:
             last_exc: Exception | None = None
             for attempt in range(_MAX_RETRIES + 1):
+                if attempt:
+                    await asyncio.sleep(_BACKOFF_S * attempt)
                 try:
                     resp = await client.get(path)
                 except httpx.RequestError as e:
@@ -103,6 +108,10 @@ async def get_instance() -> dict:
 
 async def get_regions() -> list[dict]:
     return await _request("GET", "/v1/regions")
+
+
+async def get_regions_with_staleness() -> tuple[list[dict], bool]:
+    return await _request_with_staleness("/v1/regions")
 
 
 async def get_depots() -> list[dict]:

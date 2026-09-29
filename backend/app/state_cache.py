@@ -1,7 +1,7 @@
 """Short-TTL cache over simulator reads, with degraded-mode fallback.
 
-The simulator ticks every 15 sim-minutes at 8 ticks/sec wall-clock by default —
-state changes fast in wall-clock time, so the TTL is short. Two distinct
+When the simulator is RUNNING it can advance several ticks per wall-clock second,
+so the TTL is short. Two distinct
 failure modes, both handled by serving the last known-good value instead of
 propagating an error:
 - X-Simulator-Stale: true (simulator says its own answer isn't trustworthy)
@@ -21,11 +21,18 @@ from app.simulator_client import SimulatorError
 
 _TTL_S = 3.0
 _cache: dict[str, tuple[float, list[dict]]] = {}
+_previous: dict[str, list[dict]] = {}  # value the cache held just before its last real update
 _degraded_reason: str | None = None
 
 
 def is_degraded() -> tuple[bool, str | None]:
     return _degraded_reason is not None, _degraded_reason
+
+
+def previous(key: str) -> list[dict] | None:
+    """Snapshot from one poll ago — for change-detection (e.g. abnormal inventory drop).
+    None until the second successful fetch."""
+    return _previous.get(key)
 
 
 async def _get(key: str, fetch) -> list[dict]:
@@ -54,6 +61,8 @@ async def _get(key: str, fetch) -> list[dict]:
     if _degraded_reason is not None:
         log_event("recovery", previous_reason=_degraded_reason)
     _degraded_reason = None
+    if cached is not None:
+        _previous[key] = cached[1]
     _cache[key] = (now, data)
     return data
 
@@ -68,3 +77,16 @@ async def get_depots() -> list[dict]:
 
 async def get_routes() -> list[dict]:
     return await _get("routes", sc.get_routes_with_staleness)
+
+
+async def get_regions() -> list[dict]:
+    return await _get("regions", sc.get_regions_with_staleness)
+
+
+def invalidate(*keys: str):
+    """Force a refetch after we change the world (e.g. a shipment just took depot stock),
+    so the next plan doesn't reuse up-to-3s-old inventory. Expires rather than deletes,
+    so the old value is still there as a fallback if that refetch hits a fault."""
+    for key in keys:
+        if key in _cache:
+            _cache[key] = (float("-inf"), _cache[key][1])

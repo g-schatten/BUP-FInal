@@ -1,3 +1,5 @@
+import { colors } from "./ui"
+
 interface Props {
   values: number[]
   width?: number
@@ -5,7 +7,7 @@ interface Props {
   color?: string
 }
 
-export function Sparkline({ values, width = 160, height = 40, color = "#2563eb" }: Props) {
+export function Sparkline({ values, width = 160, height = 40, color = colors.blue }: Props) {
   if (values.length < 2) return <svg width={width} height={height} />
   const min = Math.min(...values)
   const max = Math.max(...values)

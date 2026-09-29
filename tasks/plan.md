@@ -38,3 +38,25 @@ Budget: 6–7h. Vertical slices, dependency order. Stretch items (RL, LLM explan
 - 7.2 Walk the 14-step suggested demo story end-to-end once; fix what breaks.
 
 Total ≈ 6.5h incl. buffer.
+
+## Phase 9 — Operator views + hardening
+
+Goal: every item in the problem statement's §6 application list is visible, backed by real data, and the Later list is closed.
+
+**Backend**
+- 9.1 Forecast: stock can't go negative (a late shipment refills from zero, not from a deficit); add `unmet_over_horizon_l` (liters of demand that would go unserved in 24h) and use it as the shortage to plan against.
+- 9.2 Expected impact per recommendation: re-run the forecast with the shipment added as inbound → stockout hours, risk and unmet liters before → after. Plan-level totals: unmet 24h before vs after the whole plan.
+- 9.3 Planner returns depot budgets (dispatch: capacity / already pending / planned / left; stock per fuel before → after plan).
+- 9.4 In-memory activity log (ring buffer fed by `log_event`) and decision log (context recorded at apply time: risk/impact, plus rejected attempts).
+- 9.5 `GET /api/dashboard`: one call returning plan + budgets + impact, regional demand (per region × fuel: 24h demand, station stock, inbound, coverage hours, depot stock), incoming supply (depot supply arrivals not yet arrived + shipments in transit to stations), disruptions (detected now + crisis event feed), system alerts (derived conditions + recent failures), decision history (simulator ledger joined with our decision log + rejected attempts). `/api/alerts` stays for the load test.
+- 9.6 Later list: rejection surfaced correctly (business 409 ≠ degraded), operator token on apply + admin (`OPERATOR_TOKEN` env, unset = open for local dev), cap `step?n`, `fuel_type` validation, retry backoff, fallback skips closed depots.
+
+**Frontend** — tabs (hash-routed so each is linkable/screenshot-able): Overview · Allocation plan · Supply & demand · Disruptions & alerts · Decision history
+- Overview: network (stations, depots, demand sparkline) + stockout alert cards with expected impact and approve button.
+- Allocation plan: ranked plan table with before → after impact, depot budget bars, unserved alerts with reasons, plan totals, "Approve all".
+- Supply & demand: regional demand table, incoming supply (depot arrivals + in-transit shipments).
+- Disruptions & alerts: system alerts, detected disruptions, crisis events.
+- Decision history: every shipment with status + the context it was approved under, and rejected attempts.
+- Apply results shown explicitly (success with shipment id, or rejection reason); operator token field when the backend requires one.
+
+**Accept:** each tab renders live data from the local simulator; applying the full plan yields only 201s; a rejection is visible in the UI and in history; a real fault shows degraded state + system alert + recovery; typecheck clean.

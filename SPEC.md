@@ -31,19 +31,28 @@ backend/
   app/
     main.py
     simulator_client.py       # wraps /v1/* (health/instance/regions/depots/stations/routes/supply-arrivals/events/demand-history/metrics/allocations) + /admin/*
+    state_cache.py            # short-TTL cache, degraded-mode fallback
+    auth.py                   # OPERATOR_TOKEN guard
+    decision_log.py           # approval context + rejected attempts (in-memory)
+    logging_utils.py          # structured logs + in-memory activity ring buffer
+    metrics.py                # Prometheus text counters
+    views.py                  # regional demand / incoming supply / disruptions / system alerts / history
     intelligence/
-      forecast.py             # demand forecast, stockout probability, hours-to-stockout
+      forecast.py             # profile-aware demand model, tick-by-tick projection, calibration
       detect.py               # anomaly / disruption detection -> alerts
-      allocate.py             # constrained allocation recommender + rule-based fallback
+      allocate.py             # coordinated allocation planner + depot budgets
+      fallback.py             # rule-based policy used only when the smart path fails
     api/
       routes_state.py         # cached passthrough of simulator state
-      routes_decision.py      # /predict /alerts /allocations/recommend
-      routes_health.py        # /health /metrics
+      routes_decision.py      # /dashboard /predict /alerts /allocations/apply
+      routes_health.py        # /health /metrics /api/config
+      routes_admin.py         # passthrough to simulator /admin/*
     models.py                 # pydantic schemas
   Dockerfile
 frontend/
-  src/pages/Dashboard.tsx     # inventory/status, alerts, allocation recommendation + approve action
-  src/components/
+  src/pages/Dashboard.tsx     # tab shell: header, notices, operator token, polling
+  src/views/                  # NetworkView, PlanView, SupplyDemandView, DisruptionsView, HistoryView
+  src/components/             # AlertCard, Sparkline, ui.tsx (shared styles/formatters)
   Dockerfile
 docker-compose.yml
 tasks/plan.md

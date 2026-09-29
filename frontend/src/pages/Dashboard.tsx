@@ -1,223 +1,245 @@
-import { useEffect, useState } from "react"
-import { api, type Alert, type Depot, type FuelType, type HealthResponse, type Station } from "../api"
-import { Sparkline } from "../components/Sparkline"
+import { useCallback, useEffect, useState } from "react"
+import { api, getToken, setToken, type Alert, type DashboardResponse, type HealthResponse } from "../api"
+import { AlertCard } from "../components/AlertCard"
+import { Card, Empty, colors, fmtL, pct } from "../components/ui"
+import { DisruptionsView, SystemAlertList } from "../views/DisruptionsView"
+import { HistoryView } from "../views/HistoryView"
+import { NetworkView } from "../views/NetworkView"
+import { PlanView } from "../views/PlanView"
+import { SupplyDemandView } from "../views/SupplyDemandView"
 
-const FUELS: FuelType[] = ["DIESEL", "PETROL", "OCTANE"]
 const POLL_MS = 6000
 
-function pctColor(pct: number): string {
-  if (pct < 0.2) return "#dc2626"
-  if (pct < 0.5) return "#d97706"
-  return "#16a34a"
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "plan", label: "Allocation plan" },
+  { id: "supply", label: "Supply & demand" },
+  { id: "alerts", label: "Disruptions & alerts" },
+  { id: "history", label: "Decision history" },
+] as const
+type TabId = (typeof TABS)[number]["id"]
+
+function tabFromHash(): TabId {
+  const h = window.location.hash.replace("#", "")
+  return (TABS.find((t) => t.id === h)?.id ?? "overview") as TabId
 }
 
-function InventoryBar({ inventory, capacity }: { inventory: number; capacity: number }) {
-  const pct = capacity > 0 ? inventory / capacity : 0
-  return (
-    <div style={{ background: "#e5e7eb", borderRadius: 4, height: 10, width: 80, overflow: "hidden" }}>
-      <div style={{ background: pctColor(pct), width: `${Math.min(100, pct * 100)}%`, height: "100%" }} />
-    </div>
-  )
+interface Notice {
+  tone: "success" | "error" | "warning"
+  text: string
+}
+
+const NOTICE_STYLE = {
+  success: { background: colors.greenBg, color: colors.greenText },
+  error: { background: colors.redBg, color: colors.redText },
+  warning: { background: colors.amberBg, color: colors.amberText },
 }
 
 export function Dashboard() {
-  const [stations, setStations] = useState<Station[]>([])
-  const [depots, setDepots] = useState<Depot[]>([])
-  const [alerts, setAlerts] = useState<Alert[]>([])
+  const [data, setData] = useState<DashboardResponse | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [selected, setSelected] = useState<string | null>(null)
-  const [history, setHistory] = useState<Record<FuelType, number[]>>({ DIESEL: [], PETROL: [], OCTANE: [] })
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [tab, setTab] = useState<TabId>(tabFromHash)
   const [applying, setApplying] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [degradedReason, setDegradedReason] = useState<string | null>(null)
+  const [approvingAll, setApprovingAll] = useState(false)
+  const [notices, setNotices] = useState<Notice[]>([])
+  const [token, setTokenState] = useState(getToken)
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
-      const [s, d, a, h] = await Promise.all([api.stations(), api.depots(), api.alerts(), api.health()])
-      setStations(s)
-      setDepots(d)
-      setAlerts(a.alerts)
-      setDegradedReason(a.degraded_mode ? a.degraded_reason ?? "unknown" : null)
+      const [d, h] = await Promise.all([api.dashboard(), api.health()])
+      setData(d)
       setHealth(h)
-      setError(null)
+      setLoadError(null)
     } catch (e) {
-      setError((e as Error).message)
+      setLoadError((e as Error).message)
     }
-  }
+  }, [])
 
   useEffect(() => {
     refresh()
     const t = setInterval(refresh, POLL_MS)
     return () => clearInterval(t)
-  }, [])
+  }, [refresh])
 
   useEffect(() => {
-    if (!selected) return
-    let cancelled = false
-    api.demandHistory(selected, 30).then((rows) => {
-      if (cancelled) return
-      const byFuel: Record<FuelType, number[]> = { DIESEL: [], PETROL: [], OCTANE: [] }
-      for (const fuel of FUELS) {
-        byFuel[fuel] = rows.filter((r) => r.fuel_type === fuel).map((r) => r.demand_liters)
-      }
-      setHistory(byFuel)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [selected])
+    const onHash = () => setTab(tabFromHash())
+    window.addEventListener("hashchange", onHash)
+    return () => window.removeEventListener("hashchange", onHash)
+  }, [])
 
-  async function apply(stationId: string, fuelType: FuelType) {
-    setApplying(`${stationId}-${fuelType}`)
+  // Returns a notice rather than setting state, so "Approve all" can report every result together.
+  async function submit(a: Alert): Promise<Notice> {
+    const where = `${a.station_id} ${a.fuel_type}`
     try {
-      await api.applyAllocation(stationId, fuelType)
-      await refresh()
+      const res = await api.applyAllocation(a.station_id, a.fuel_type)
+      const alloc = res.allocation
+      if (alloc.accepted) {
+        const impact = res.impact ? ` Expected risk ${pct(res.impact.risk_before)} → ${pct(res.impact.risk_after)}.` : ""
+        return {
+          tone: "success",
+          text: `Shipment #${alloc.id} created: ${fmtL(res.recommendation.quantity)} from ${res.recommendation.source_depot_id} to ${where}.${impact}`,
+        }
+      }
+      return alloc.degraded_mode
+        ? { tone: "warning", text: `${where}: simulator unavailable (${alloc.code}) — shipment not sent, try again shortly.` }
+        : { tone: "error", text: `${where}: rejected by the simulator — ${alloc.code}: ${alloc.reason}` }
     } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setApplying(null)
+      return { tone: "error", text: `${where}: ${(e as Error).message}` }
     }
   }
 
-  const degraded = health?.status !== "healthy" || degradedReason !== null
+  async function apply(a: Alert) {
+    setApplying(`${a.station_id}-${a.fuel_type}`)
+    const notice = await submit(a)
+    setNotices([notice])
+    setApplying(null)
+    await refresh()
+  }
+
+  async function approveAll() {
+    if (!data) return
+    setApprovingAll(true)
+    const results: Notice[] = []
+    // Sequential, most urgent first: each apply recomputes the plan with the previous shipment counted.
+    for (const a of data.alerts.filter((x) => x.recommended_allocation)) results.push(await submit(a))
+    setNotices(results)
+    setApprovingAll(false)
+    await refresh()
+  }
+
+  function saveToken(value: string) {
+    setTokenState(value)
+    setToken(value)
+  }
+
+  const degraded = health?.status !== "healthy" || !!data?.degraded_mode
+  const serious = data?.system_alerts.filter((a) => a.level !== "info").length ?? 0
+  const anyCritical = data?.system_alerts.some((a) => a.level === "critical") ?? false
+  const simTime = data?.sim_time ? new Date(data.sim_time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : null
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ fontSize: 22 }}>Fuel Supply Operations</h1>
-        <span
-          style={{
-            padding: "4px 10px",
-            borderRadius: 12,
-            fontSize: 13,
-            background: degraded ? "#fef3c7" : "#dcfce7",
-            color: degraded ? "#92400e" : "#166534",
-          }}
-        >
-          {degraded ? `DEGRADED MODE${degradedReason ? ` (${degradedReason})` : ""}` : "system healthy"} · sim tick{" "}
-          {String((health?.components.fuel_simulator?.simulation as { tick?: number } | undefined)?.tick ?? "-")}
-        </span>
-      </div>
-
-      {error && <div style={{ background: "#fee2e2", color: "#991b1b", padding: 8, borderRadius: 6, marginTop: 12 }}>{error}</div>}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24, marginTop: 20 }}>
-        <div>
-          <h2 style={{ fontSize: 16 }}>Stations</h2>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: "left", color: "#6b7280" }}>
-                <th>Station</th>
-                <th>Status</th>
-                {FUELS.map((f) => (
-                  <th key={f}>{f}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {stations.map((s) => (
-                <tr
-                  key={s.id}
-                  onClick={() => setSelected(s.id)}
-                  style={{ cursor: "pointer", background: selected === s.id ? "#eff6ff" : undefined, borderTop: "1px solid #f0f0f0" }}
-                >
-                  <td style={{ padding: "6px 4px" }}>{s.name}</td>
-                  <td>{s.status}</td>
-                  {FUELS.map((f) => (
-                    <td key={f} style={{ padding: "6px 4px" }}>
-                      <InventoryBar inventory={s.inventory[f] ?? 0} capacity={s.capacity[f] ?? 1} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {selected && (
-            <div style={{ marginTop: 16 }}>
-              <h3 style={{ fontSize: 14 }}>{selected} — recent demand</h3>
-              <div style={{ display: "flex", gap: 16 }}>
-                {FUELS.map((f) => (
-                  <div key={f}>
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>{f}</div>
-                    <Sparkline values={history[f]} />
-                  </div>
-                ))}
-              </div>
-            </div>
+    <div style={{ fontFamily: "system-ui, sans-serif", padding: "20px 24px", maxWidth: 1280, margin: "0 auto", color: colors.text }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 22, margin: 0 }}>Fuel Supply Operations</h1>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {data?.auth_required && (
+            <input
+              type="password"
+              placeholder="Operator token"
+              value={token}
+              onChange={(e) => saveToken(e.target.value)}
+              style={{ fontSize: 12, padding: "4px 8px", border: `1px solid ${colors.border}`, borderRadius: 6, width: 140 }}
+            />
           )}
-
-          <h2 style={{ fontSize: 16, marginTop: 24 }}>Depots</h2>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: "left", color: "#6b7280" }}>
-                <th>Depot</th>
-                <th>Status</th>
-                {FUELS.map((f) => (
-                  <th key={f}>{f}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {depots.map((d) => (
-                <tr key={d.id} style={{ borderTop: "1px solid #f0f0f0" }}>
-                  <td style={{ padding: "6px 4px" }}>{d.name}</td>
-                  <td>{d.status}</td>
-                  {FUELS.map((f) => (
-                    <td key={f} style={{ padding: "6px 4px" }}>
-                      <InventoryBar inventory={d.inventory[f] ?? 0} capacity={d.capacity[f] ?? 1} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <span
+            style={{
+              padding: "4px 10px",
+              borderRadius: 12,
+              fontSize: 13,
+              background: degraded ? colors.amberBg : colors.greenBg,
+              color: degraded ? colors.amberText : colors.greenText,
+            }}
+          >
+            {degraded ? `DEGRADED MODE${data?.degraded_reason ? ` (${data.degraded_reason})` : ""}` : "system healthy"}
+            {data?.tick != null && ` · tick ${data.tick}`}
+            {simTime && ` · ${simTime}`}
+          </span>
         </div>
+      </header>
 
-        <div>
-          <h2 style={{ fontSize: 16 }}>Alerts</h2>
-          {alerts.length === 0 && <div style={{ color: "#6b7280", fontSize: 13 }}>No active shortage risk.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {alerts.map((a) => {
-              const key = `${a.station_id}-${a.fuel_type}`
-              return (
-                <div key={key} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <strong style={{ fontSize: 13 }}>
-                      {a.station_id} · {a.fuel_type}
-                    </strong>
-                    <span style={{ fontSize: 12, color: pctColor(1 - a.stockout_probability) }}>
-                      {(a.stockout_probability * 100).toFixed(0)}% risk
-                    </span>
+      <nav style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: `1px solid ${colors.border}`, flexWrap: "wrap" }}>
+        {TABS.map((t) => (
+          <a
+            key={t.id}
+            href={`#${t.id}`}
+            style={{
+              padding: "8px 12px",
+              fontSize: 14,
+              textDecoration: "none",
+              color: tab === t.id ? colors.blue : colors.muted,
+              borderBottom: `2px solid ${tab === t.id ? colors.blue : "transparent"}`,
+              marginBottom: -1,
+            }}
+          >
+            {t.label}
+            {t.id === "alerts" && serious > 0 && (
+              <span style={{ marginLeft: 6, background: anyCritical ? colors.red : colors.amber, color: "#fff", borderRadius: 9, fontSize: 11, padding: "0 6px" }}>
+                {serious}
+              </span>
+            )}
+            {t.id === "plan" && data?.plan.totals && data.plan.totals.shipments_planned > 0 && (
+              <span style={{ marginLeft: 6, background: colors.blue, color: "#fff", borderRadius: 9, fontSize: 11, padding: "0 6px" }}>
+                {data.plan.totals.shipments_planned}
+              </span>
+            )}
+          </a>
+        ))}
+      </nav>
+
+      {loadError && <div style={{ ...NOTICE_STYLE.error, padding: 8, borderRadius: 6, marginTop: 12, fontSize: 13 }}>Can't load data: {loadError}</div>}
+      {notices.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
+          {notices.map((n, i) => (
+            <div key={i} style={{ ...NOTICE_STYLE[n.tone], padding: "8px 10px", borderRadius: 6, fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+              <span>{n.text}</span>
+              {i === 0 && (
+                <button onClick={() => setNotices([])} style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit" }}>
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <main style={{ marginTop: 16 }}>
+        {!data ? (
+          <Empty>Loading…</Empty>
+        ) : tab === "overview" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 16 }}>
+            <NetworkView stations={data.stations} depots={data.depots} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <Card title="System alerts">
+                <SystemAlertList alerts={data.system_alerts} limit={4} />
+              </Card>
+              <Card title="Stockout alerts" right={<a href="#plan" style={{ fontSize: 12, color: colors.blue }}>full plan →</a>}>
+                {data.alerts.length === 0 ? (
+                  <Empty>No projected stockouts in the next 24h.</Empty>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {data.alerts.map((a) => (
+                      <AlertCard
+                        key={`${a.station_id}-${a.fuel_type}`}
+                        alert={a}
+                        applying={applying === `${a.station_id}-${a.fuel_type}` || approvingAll}
+                        onApply={() => apply(a)}
+                      />
+                    ))}
                   </div>
-                  <div style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
-                    {a.projected_stockout_hours != null ? `stockout in ${a.projected_stockout_hours.toFixed(1)}h · ` : ""}
-                    inventory {a.current_inventory_l.toFixed(0)}L
-                    {a.expected_demand_l > 0 ? ` · expected demand ${a.expected_demand_l.toFixed(0)}L` : ""}
-                  </div>
-                  {a.recommended_allocation ? (
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ fontSize: 12 }}>
-                        Recommend: {a.recommended_allocation.quantity.toFixed(0)}L from {a.recommended_allocation.source_depot_id} (
-                        {a.recommended_allocation.transit_ticks} ticks transit)
-                      </div>
-                      <button
-                        disabled={applying === key}
-                        onClick={() => apply(a.station_id, a.fuel_type)}
-                        style={{ marginTop: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
-                      >
-                        {applying === key ? "Applying…" : "Apply allocation"}
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: "#991b1b", marginTop: 6 }}>No feasible route right now.</div>
-                  )}
-                </div>
-              )
-            })}
+                )}
+              </Card>
+            </div>
           </div>
-        </div>
-      </div>
+        ) : tab === "plan" ? (
+          <PlanView
+            alerts={data.alerts}
+            totals={data.plan.totals}
+            budgets={data.plan.budgets}
+            fallback={data.mode === "fallback"}
+            applying={applying}
+            approvingAll={approvingAll}
+            onApply={apply}
+            onApproveAll={approveAll}
+          />
+        ) : tab === "supply" ? (
+          <SupplyDemandView regional={data.regional_demand} incoming={data.incoming} reliability={data.transport_reliability} />
+        ) : tab === "alerts" ? (
+          <DisruptionsView systemAlerts={data.system_alerts} disruptions={data.disruptions} />
+        ) : (
+          <HistoryView history={data.history} />
+        )}
+      </main>
     </div>
   )
 }

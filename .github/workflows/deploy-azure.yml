@@ -1,0 +1,119 @@
+name: Build, test, and deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  RESOURCE_GROUP: bup-fuel-platform-rg
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  BACKEND_FQDN: bup-backend-16491.centralindia.azurecontainer.io
+  FRONTEND_FQDN: bup-app-16491.centralindia.azurecontainer.io
+  LOCATION: centralindia
+
+jobs:
+  test:
+    name: Build + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Backend imports cleanly
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          python -c "from app.main import app; print('backend OK, routes:', len(app.routes))"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Frontend typecheck
+        run: |
+          cd frontend
+          npm ci
+          npx tsc -p tsconfig.app.json --noEmit
+
+  deploy:
+    name: Package + deploy + health check
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: |
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login "$ACR_LOGIN_SERVER" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+
+      - name: Build + push backend
+        run: |
+          docker build -t "$ACR_LOGIN_SERVER/bup-backend:${{ github.sha }}" -t "$ACR_LOGIN_SERVER/bup-backend:latest" ./backend
+          docker push "$ACR_LOGIN_SERVER/bup-backend:${{ github.sha }}"
+          docker push "$ACR_LOGIN_SERVER/bup-backend:latest"
+
+      - name: Build + push frontend (backend URL baked in)
+        run: |
+          docker build -f frontend/Dockerfile.prod \
+            --build-arg VITE_API_BASE_URL="http://${BACKEND_FQDN}:8000" \
+            -t "$ACR_LOGIN_SERVER/bup-frontend:${{ github.sha }}" -t "$ACR_LOGIN_SERVER/bup-frontend:latest" ./frontend
+          docker push "$ACR_LOGIN_SERVER/bup-frontend:${{ github.sha }}"
+          docker push "$ACR_LOGIN_SERVER/bup-frontend:latest"
+
+      - name: Deploy backend (recreate container group with the new image)
+        run: |
+          az container create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name bup-backend \
+            --image "$ACR_LOGIN_SERVER/bup-backend:${{ github.sha }}" \
+            --os-type Linux --cpu 1 --memory 1.5 \
+            --ports 8000 --ip-address Public \
+            --dns-name-label bup-backend-16491 \
+            --location "$LOCATION" \
+            --registry-login-server "$ACR_LOGIN_SERVER" \
+            --registry-username "${{ secrets.ACR_USERNAME }}" \
+            --registry-password "${{ secrets.ACR_PASSWORD }}" \
+            --environment-variables SIMULATOR_BASE_URL="http://bup-sim-16491.centralindia.azurecontainer.io:8000" OPERATOR_TOKEN="${{ secrets.OPERATOR_TOKEN }}" \
+            --restart-policy Always
+
+      - name: Deploy frontend (recreate container group with the new image)
+        run: |
+          az container create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name bup-frontend \
+            --image "$ACR_LOGIN_SERVER/bup-frontend:${{ github.sha }}" \
+            --os-type Linux --cpu 1 --memory 1 \
+            --ports 8080 --ip-address Public \
+            --dns-name-label bup-app-16491 \
+            --location "$LOCATION" \
+            --registry-login-server "$ACR_LOGIN_SERVER" \
+            --registry-username "${{ secrets.ACR_USERNAME }}" \
+            --registry-password "${{ secrets.ACR_PASSWORD }}" \
+            --restart-policy Always
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            sleep 5
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://${BACKEND_FQDN}:8000/health" || true)
+            echo "backend /health -> $code (attempt $i)"
+            [ "$code" = "200" ] && break
+          done
+          [ "$code" = "200" ] || { echo "backend never became healthy"; exit 1; }
+
+          for i in $(seq 1 20); do
+            sleep 3
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://${FRONTEND_FQDN}:8080" || true)
+            echo "frontend -> $code (attempt $i)"
+            [ "$code" = "200" ] && break
+          done
+          [ "$code" = "200" ] || { echo "frontend never became healthy"; exit 1; }
+
+          echo "Deployed: http://${FRONTEND_FQDN}:8080"
