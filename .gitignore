@@ -1,0 +1,9 @@
+problem/
+
+.env
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+frontend/dist/
+*.db
