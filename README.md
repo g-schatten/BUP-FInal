@@ -28,6 +28,25 @@ backend/ (FastAPI)
 frontend/ (React + Vite) — operator dashboard: inventory, alerts, allocation approval
 ```
 
+## Live deployment (Azure)
+
+Deployed as 3 separate Azure Container Instances in resource group `bup-fuel-platform-rg` (centralindia), pushed through Azure Container Registry `bupfuelacr10349`:
+
+| Service | Public URL |
+|---|---|
+| **Dashboard** | http://bup-app-16491.centralindia.azurecontainer.io:8080 |
+| Backend API | http://bup-backend-16491.centralindia.azurecontainer.io:8000 |
+| Simulator | http://bup-sim-16491.centralindia.azurecontainer.io:8000 |
+
+Each service is independently public (ACI container groups share one network namespace, and both the backend and simulator images listen on the same internal port 8000, so a single shared-network group would need a port remap — three separate instances was faster to stand up for a demo link). CORS on the backend is already permissive, so the frontend calls the backend's public URL directly.
+
+The simulator is paused and pre-stepped to tick 45 so the dashboard shows populated alerts immediately. To reset or drive it: `curl -X POST http://bup-backend-16491.centralindia.azurecontainer.io:8000/api/admin/step?n=10` (same `/api/admin/*` passthrough as local).
+
+**This bills your Azure subscription while running.** Tear down with:
+```bash
+az group delete --name bup-fuel-platform-rg --yes --no-wait
+```
+
 ## Run it
 
 Requires Docker + Compose.
