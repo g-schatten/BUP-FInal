@@ -27,9 +27,9 @@ export function NetworkView({ stations, depots }: { stations: Station[]; depots:
   }, [selected])
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card title="Stations" right={<span style={{ fontSize: 12, color: colors.muted }}>click a row for recent demand</span>}>
-        <table style={table}>
+        <table style={table} className="app-table">
           <thead>
             <tr>
               <th style={th}>Station</th>
@@ -74,7 +74,7 @@ export function NetworkView({ stations, depots }: { stations: Station[]; depots:
       </Card>
 
       <Card title="Depots">
-        <table style={table}>
+        <table style={table} className="app-table">
           <thead>
             <tr>
               <th style={th}>Depot</th>

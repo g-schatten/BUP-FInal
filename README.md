@@ -32,6 +32,11 @@ backend/ (FastAPI)
         ▼
 frontend/ (React + Vite) — 5-tab operator dashboard (Overview, Allocation plan,
   Supply & demand, Disruptions & alerts, Decision history)
+
+Monitoring taps every layer above without a separate pipeline: GET /health and
+GET /metrics (routes_health) read state_cache + the intelligence layer directly;
+logging_utils.log_event() writes structured JSON from state_cache and routes_decision
+to stdout, and the same ring buffer feeds the dashboard's System alerts panel.
 ```
 
 ## Live deployment (Azure)
@@ -142,7 +147,10 @@ Other fault types available: `latency`, `error_rate`, `stale_data`, `stream_disc
 ## Observability
 
 - `GET /health` — per-component status: `fuel_simulator` (via `/v1/health`, which bypasses fault injection by design — it's the liveness probe), `backend_api`, `decision_layer` (ours — reflects whether we're serving live or fallback data, which `/v1/health` alone cannot tell you).
-- `GET /metrics` — Prometheus text format: `allocations_applied_total`, `allocations_rejected_total`, `alerts_active`, `integration_failures_total`.
+- `GET /metrics` — Prometheus text format, all 3 layers from Section 14:
+  - **Application:** `http_requests_total` (+ per-status), `http_errors_total`, `http_request_duration_seconds_avg`/`_count`
+  - **System:** `process_cpu_seconds_total`, `process_max_rss_kb` (stdlib `resource`, no new dependency)
+  - **Intelligence:** `allocations_applied_total`, `allocations_rejected_total`, `alerts_active`, `integration_failures_total`
 - Structured JSON logs to stdout (`docker compose logs backend`) for `allocation.applied`, `allocation.rejected`, `integration_failure`, `recovery`.
 
 ## Load testing

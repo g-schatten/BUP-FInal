@@ -34,7 +34,7 @@ export function SystemAlertList({ alerts, limit }: { alerts: SystemAlert[]; limi
   const shown = limit ? alerts.slice(0, limit) : alerts
   if (shown.length === 0) return <Empty>No system alerts.</Empty>
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {shown.map((a, i) => (
         <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 13 }}>
           <Pill tone={LEVEL_TONE[a.level]}>{a.level}</Pill>
@@ -50,7 +50,7 @@ export function SystemAlertList({ alerts, limit }: { alerts: SystemAlert[]; limi
 
 export function DisruptionsView({ systemAlerts, disruptions }: { systemAlerts: SystemAlert[]; disruptions: DashboardResponse["disruptions"] }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card title="System alerts">
         <SystemAlertList alerts={systemAlerts} />
       </Card>
@@ -59,7 +59,7 @@ export function DisruptionsView({ systemAlerts, disruptions }: { systemAlerts: S
         {disruptions.detected.length === 0 ? (
           <Empty>No disruptions detected.</Empty>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {disruptions.detected.map((d, i) => (
               <div key={i} style={{ fontSize: 13, display: "flex", gap: 8 }}>
                 <Pill tone={d.type === "station_outage" ? "red" : "amber"}>{d.type.replace("_", " ")}</Pill>
@@ -76,7 +76,7 @@ export function DisruptionsView({ systemAlerts, disruptions }: { systemAlerts: S
         ) : disruptions.events.length === 0 ? (
           <Empty>No crisis events so far.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>#</th>

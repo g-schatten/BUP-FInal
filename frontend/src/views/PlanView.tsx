@@ -1,5 +1,5 @@
 import type { Alert, DepotBudget, FuelType, PlanTotals } from "../api"
-import { Card, Empty, Pill, Stat, colors, fmtH, fmtL, pct, riskColor, table, td, th } from "../components/ui"
+import { Button, Card, Empty, Pill, Stat, colors, fmtH, fmtL, pct, riskColor, table, td, th } from "../components/ui"
 
 const FUELS: FuelType[] = ["DIESEL", "PETROL", "OCTANE"]
 
@@ -35,7 +35,7 @@ export function PlanView({ alerts, totals, budgets, fallback, applying, approvin
   const unserved = alerts.filter((a) => !a.recommended_allocation)
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card title="How it decides">
         <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5 }}>
           Every projected shortage is planned together against each depot's fuel on hand and its dispatch capacity for this tick. Stations are ranked by how
@@ -95,16 +95,16 @@ export function PlanView({ alerts, totals, budgets, fallback, applying, approvin
         title="Recommended allocations"
         right={
           planned.length > 0 && (
-            <button onClick={onApproveAll} disabled={approvingAll || applying !== null} style={{ padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>
+            <Button variant="primary" onClick={onApproveAll} disabled={approvingAll || applying !== null}>
               {approvingAll ? "Approving…" : `Approve all ${planned.length}`}
-            </button>
+            </Button>
           )
         }
       >
         {planned.length === 0 ? (
           <Empty>Nothing to ship this tick.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>#</th>
@@ -173,9 +173,9 @@ export function PlanView({ alerts, totals, budgets, fallback, applying, approvin
                       )}
                     </td>
                     <td style={td}>
-                      <button disabled={applying !== null || approvingAll} onClick={() => onApply(a)} style={{ padding: "3px 10px", fontSize: 12, cursor: "pointer" }}>
+                      <Button disabled={applying !== null || approvingAll} onClick={() => onApply(a)}>
                         {applying === key ? "…" : "Approve"}
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 )
@@ -187,7 +187,7 @@ export function PlanView({ alerts, totals, budgets, fallback, applying, approvin
 
       {unserved.length > 0 && (
         <Card title="Shortages waiting for capacity">
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>#</th>

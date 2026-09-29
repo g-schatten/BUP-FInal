@@ -39,13 +39,20 @@
 
 - [x] Section 9 "important recommendations should be inspectable": added `signals` (why at risk — active spike, peak hours, calibration drift, regional factor), `confidence`/`confidence_note` (history sample size), `alternatives` (other feasible routes + why not chosen) — `forecast.py`, `allocate.py`, surfaced via `<details>` in AlertCard + PlanView. Verified live.
 
+- [x] Observability gap: `/metrics` only had Intelligence-layer counters — added Application layer (`http_requests_total`+per-status, `http_errors_total`, `http_request_duration_seconds_avg`/`_count` via middleware) and System layer (`process_cpu_seconds_total`, `process_max_rss_kb` via stdlib `resource`, no new dep) — all 3 Section 14 layers now covered, verified live
+- [x] README architecture diagram didn't show the monitoring path explicitly — added a one-line note (health/metrics/logs all read the same backend state, no separate pipeline)
+- [x] `DEMO.md` — full 14-step demonstration runbook with exact commands, verified live (including fixing a wrong curl form for the event-injection step before it made it into the doc)
+- [x] Deleted `naive_baseline_allocation` todo item — function no longer exists (removed when `allocate.py` became the coordinated planner); todo was stale
+
+## Known open issue
+- [ ] Redesign in progress (dark, modern UI, generous spacing — user request): CSS custom-property theming and elevation tokens are in place and verified (`index.css`, `ui.tsx`), but the `.tab` nav styling isn't visually applying padding/gap despite correct className, correct CSS in the served stylesheet, and correct DOM (triple-checked via dumped DOM + fetched raw CSS) — root cause not yet found, parked mid-investigation when priorities shifted. Revisit before calling the redesign done.
+
 ## Later
 - [ ] Idempotency key still generated per click, not per shown recommendation — a lost response to the *browser* followed by a manual retry can still double-ship (retries backend→simulator are already safe; this is browser→backend only). Lower priority now that in-transit fuel is counted, which shrinks/clears the alert once shipped.
 - [ ] `state_cache.py`: one shared degraded flag across stations/depots/routes/regions — a success on one can clear the flag while another is still serving from cache.
 - [ ] `/health`'s `decision_layer` only reads the degraded flag, doesn't force a refresh — can lag a few seconds behind `/api/dashboard`.
 - [ ] Reuse one shared `httpx.AsyncClient` instead of opening a new one per call in `simulator_client.py`.
 - [ ] Two-operator race: no lock around apply, so two simultaneous clicks against the same depot budget aren't serialized (the simulator's own dispatch-capacity check is still the final guard).
-- [ ] `naive_baseline_allocation` in `allocate.py` is unused (dead code) — either wire up a measured comparison or delete it.
 - [ ] Minor: a rapid burst of `/api/admin/step` immediately followed by a read can see a stale (up to 3s old) cached snapshot from `state_cache` mid-burst — self-corrects on the next request, not reachable through normal dashboard use, only found by hammering step+read back-to-back with no delay.
 
 ## Intelligence Requirement

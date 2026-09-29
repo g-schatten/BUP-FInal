@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { api, getToken, setToken, type Alert, type DashboardResponse, type HealthResponse } from "../api"
 import { AlertCard } from "../components/AlertCard"
-import { Card, Empty, colors, fmtL, pct } from "../components/ui"
+import { Card, Empty, colors, fmtL, pct, radius, space } from "../components/ui"
 import { DisruptionsView, SystemAlertList } from "../views/DisruptionsView"
 import { HistoryView } from "../views/HistoryView"
 import { NetworkView } from "../views/NetworkView"
@@ -119,87 +119,91 @@ export function Dashboard() {
   const simTime = data?.sim_time ? new Date(data.sim_time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : null
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "20px 24px", maxWidth: 1280, margin: "0 auto", color: colors.text }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Fuel Supply Operations</h1>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {data?.auth_required && (
-            <input
-              type="password"
-              placeholder="Operator token"
-              value={token}
-              onChange={(e) => saveToken(e.target.value)}
-              style={{ fontSize: 12, padding: "4px 8px", border: `1px solid ${colors.border}`, borderRadius: 6, width: 140 }}
-            />
-          )}
-          <span
-            style={{
-              padding: "4px 10px",
-              borderRadius: 12,
-              fontSize: 13,
-              background: degraded ? colors.amberBg : colors.greenBg,
-              color: degraded ? colors.amberText : colors.greenText,
-            }}
-          >
-            {degraded ? `DEGRADED MODE${data?.degraded_reason ? ` (${data.degraded_reason})` : ""}` : "system healthy"}
-            {data?.tick != null && ` · tick ${data.tick}`}
-            {simTime && ` · ${simTime}`}
-          </span>
-        </div>
-      </header>
-
-      <nav style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: `1px solid ${colors.border}`, flexWrap: "wrap" }}>
-        {TABS.map((t) => (
-          <a
-            key={t.id}
-            href={`#${t.id}`}
-            style={{
-              padding: "8px 12px",
-              fontSize: 14,
-              textDecoration: "none",
-              color: tab === t.id ? colors.blue : colors.muted,
-              borderBottom: `2px solid ${tab === t.id ? colors.blue : "transparent"}`,
-              marginBottom: -1,
-            }}
-          >
-            {t.label}
-            {t.id === "alerts" && serious > 0 && (
-              <span style={{ marginLeft: 6, background: anyCritical ? colors.red : colors.amber, color: "#fff", borderRadius: 9, fontSize: 11, padding: "0 6px" }}>
-                {serious}
-              </span>
-            )}
-            {t.id === "plan" && data?.plan.totals && data.plan.totals.shipments_planned > 0 && (
-              <span style={{ marginLeft: 6, background: colors.blue, color: "#fff", borderRadius: 9, fontSize: 11, padding: "0 6px" }}>
-                {data.plan.totals.shipments_planned}
-              </span>
-            )}
-          </a>
-        ))}
-      </nav>
-
-      {loadError && <div style={{ ...NOTICE_STYLE.error, padding: 8, borderRadius: 6, marginTop: 12, fontSize: 13 }}>Can't load data: {loadError}</div>}
-      {notices.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
-          {notices.map((n, i) => (
-            <div key={i} style={{ ...NOTICE_STYLE[n.tone], padding: "8px 10px", borderRadius: 6, fontSize: 13, display: "flex", justifyContent: "space-between" }}>
-              <span>{n.text}</span>
-              {i === 0 && (
-                <button onClick={() => setNotices([])} style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit" }}>
-                  ✕
-                </button>
+    <div style={{ minHeight: "100vh" }}>
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+          background: colors.bg,
+          borderBottom: `1px solid ${colors.border}`,
+        }}
+      >
+        <div style={{ maxWidth: 1320, margin: "0 auto", padding: `${space[5]} ${space[6]} 0` }}>
+          <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: space[3], flexWrap: "wrap" }}>
+            <h1 style={{ fontSize: 21, fontWeight: 650, margin: 0, letterSpacing: "-0.01em" }}>Fuel Supply Operations</h1>
+            <div style={{ display: "flex", gap: space[3], alignItems: "center", flexWrap: "wrap" }}>
+              {data?.auth_required && (
+                <input
+                  type="password"
+                  placeholder="Operator token"
+                  value={token}
+                  onChange={(e) => saveToken(e.target.value)}
+                  style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${colors.border}`, borderRadius: radius.md, width: 150, background: colors.cardBg, color: colors.text }}
+                />
               )}
+              <span
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  background: degraded ? colors.amberBg : colors.greenBg,
+                  color: degraded ? colors.amberText : colors.greenText,
+                }}
+              >
+                {degraded ? `DEGRADED MODE${data?.degraded_reason ? ` (${data.degraded_reason})` : ""}` : "system healthy"}
+                {data?.tick != null && ` · tick ${data.tick}`}
+                {simTime && ` · ${simTime}`}
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+          </header>
 
-      <main style={{ marginTop: 16 }}>
+          <nav style={{ display: "flex", gap: space[1], marginTop: space[4], flexWrap: "wrap" }}>
+            {TABS.map((t) => (
+              <a key={t.id} href={`#${t.id}`} className={`tab${tab === t.id ? " active" : ""}`}>
+                {t.label}
+                {t.id === "alerts" && serious > 0 && (
+                  <span style={{ marginLeft: space[2], background: anyCritical ? colors.red : colors.amber, color: "#fff", borderRadius: 9, fontSize: 11, padding: "0 6px" }}>
+                    {serious}
+                  </span>
+                )}
+                {t.id === "plan" && data?.plan.totals && data.plan.totals.shipments_planned > 0 && (
+                  <span style={{ marginLeft: space[2], background: colors.blue, color: "#fff", borderRadius: 9, fontSize: 11, padding: "0 6px" }}>
+                    {data.plan.totals.shipments_planned}
+                  </span>
+                )}
+              </a>
+            ))}
+          </nav>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1320, margin: "0 auto", padding: `${space[6]} ${space[6]} ${space[8]}` }}>
+        {loadError && (
+          <div style={{ ...NOTICE_STYLE.error, padding: space[3], borderRadius: radius.md, marginBottom: space[5], fontSize: 13 }}>Can't load data: {loadError}</div>
+        )}
+        {notices.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: space[2], marginBottom: space[5] }}>
+            {notices.map((n, i) => (
+              <div key={i} style={{ ...NOTICE_STYLE[n.tone], padding: `${space[3]} ${space[4]}`, borderRadius: radius.md, fontSize: 13, display: "flex", justifyContent: "space-between", boxShadow: colors.shadow }}>
+                <span>{n.text}</span>
+                {i === 0 && (
+                  <button onClick={() => setNotices([])} style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit" }}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {!data ? (
           <Empty>Loading…</Empty>
         ) : tab === "overview" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 16 }}>
+          <div className="grid-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: space[6] }}>
             <NetworkView stations={data.stations} depots={data.depots} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: space[5] }}>
               <Card title="System alerts">
                 <SystemAlertList alerts={data.system_alerts} limit={4} />
               </Card>
@@ -207,7 +211,7 @@ export function Dashboard() {
                 {data.alerts.length === 0 ? (
                   <Empty>No projected stockouts in the next 24h.</Empty>
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: space[3] }}>
                     {data.alerts.map((a) => (
                       <AlertCard
                         key={`${a.station_id}-${a.fuel_type}`}
@@ -239,7 +243,7 @@ export function Dashboard() {
         ) : (
           <HistoryView history={data.history} />
         )}
-      </main>
+      </div>
     </div>
   )
 }

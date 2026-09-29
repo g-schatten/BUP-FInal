@@ -1,10 +1,16 @@
 :root {
   color-scheme: light dark;
-  --bg: #fff;
-  --card-bg: #fff;
+
+  /* Elevation: surfaces lighten as they rise (dark-first model — see @media block for the
+     values that actually apply; these are the light-mode fallback). */
+  --bg: #f7f7f8;
+  --surface-1: #ffffff;
+  --surface-2: #f1f2f4;
+  --border: #e5e7eb;
   --text: #111827;
   --muted: #6b7280;
-  --border: #e5e7eb;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+
   --red: #dc2626;
   --red-bg: #fee2e2;
   --red-text: #991b1b;
@@ -16,36 +22,124 @@
   --green-text: #166534;
   --blue: #2563eb;
   --blue-bg: #eff6ff;
+  --accent: var(--blue);
+  --accent-fg: #ffffff;
+
+  /* 4px spacing scale — generous gaps between unrelated groups, tight within a group. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --ease: 150ms ease;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1115;
-    --card-bg: #171a21;
-    --text: #e5e7eb;
-    --muted: #9ca3af;
-    --border: #2b2f3a;
+    /* Near-black page, surfaces step up in lightness as they elevate (Linear/Vercel model). */
+    --bg: #0a0b0d;
+    --surface-1: #16181d;
+    --surface-2: #1e2127;
+    --border: #262a33;
+    --text: #e8e9ec;
+    --muted: #8b909c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.24);
+
     --red: #f87171;
-    --red-bg: #3f1d1d;
+    --red-bg: #3a1a1a;
     --red-text: #fca5a5;
     --amber: #fbbf24;
-    --amber-bg: #3f2f0f;
+    --amber-bg: #3a2f12;
     --amber-text: #fcd34d;
     --green: #4ade80;
-    --green-bg: #14311f;
+    --green-bg: #14301f;
     --green-text: #86efac;
-    --blue: #60a5fa;
-    --blue-bg: #1e293b;
+    --blue: #5b9dff;
+    --blue-bg: #16233d;
+    --accent-fg: #06101f;
   }
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
   min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Every interactive surface transitions smoothly — no instant/jarring state changes. */
+button,
+a,
+.tab,
+tbody tr {
+  transition: background-color var(--ease), border-color var(--ease), color var(--ease), opacity var(--ease), transform var(--ease);
+}
+
+.app-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.tab {
+  position: relative;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--muted);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.tab.active {
+  color: var(--text);
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: var(--sp-2);
+  right: var(--sp-2);
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+@media (max-width: 900px) {
+  .grid-2col {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }

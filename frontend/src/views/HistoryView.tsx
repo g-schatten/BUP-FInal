@@ -12,12 +12,12 @@ const STATUS_TONE: Record<string, "blue" | "green" | "red" | "gray"> = {
 export function HistoryView({ history }: { history: DashboardResponse["history"] }) {
   if (!history) return <Card title="Decision history"><Empty>Unavailable in degraded mode.</Empty></Card>
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card title="Shipments" right={<span style={{ fontSize: 12, color: colors.muted }}>simulator ledger + the context each was approved under</span>}>
         {history.shipments.length === 0 ? (
           <Empty>No shipments yet.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>#</th>
@@ -83,7 +83,7 @@ export function HistoryView({ history }: { history: DashboardResponse["history"]
         {history.rejected.length === 0 ? (
           <Empty>No rejected attempts.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>When</th>

@@ -10,9 +10,9 @@ interface Props {
 export function SupplyDemandView({ regional, incoming, reliability }: Props) {
   const regions = [...new Set(regional.map((r) => r.region_id))]
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card title="Regional fuel demand">
-        <table style={table}>
+        <table style={table} className="app-table">
           <thead>
             <tr>
               <th style={th}>Region · fuel</th>
@@ -68,7 +68,7 @@ export function SupplyDemandView({ regional, incoming, reliability }: Props) {
         ) : incoming.depot_arrivals.length === 0 ? (
           <Empty>No more scheduled deliveries — the simulator's supply schedule is exhausted.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>Delivery</th>
@@ -103,7 +103,7 @@ export function SupplyDemandView({ regional, incoming, reliability }: Props) {
         ) : incoming.shipments.length === 0 ? (
           <Empty>No shipments in transit.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>#</th>
@@ -143,7 +143,7 @@ export function SupplyDemandView({ regional, incoming, reliability }: Props) {
         {reliability.length === 0 ? (
           <Empty>No arrived shipments yet to learn from.</Empty>
         ) : (
-          <table style={table}>
+          <table style={table} className="app-table">
             <thead>
               <tr>
                 <th style={th}>Route</th>
