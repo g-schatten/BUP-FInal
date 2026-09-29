@@ -255,7 +255,7 @@ async def dashboard():
         else None,
         "disruptions": {"detected": s["disruptions"], "events": views.crisis_events(s["events"], s["tick"] or 0)},
         "system_alerts": views.system_alerts(
-            s["stations"], s["alerts"], s["disruptions"], s["supply_arrivals"], s["allocations"], s["degraded_reason"], s["bottlenecks"]
+            s["stations"], s["alerts"], s["disruptions"], s["supply_arrivals"], s["allocations"], s["degraded_reason"], s["bottlenecks"], s["depots"]
         ),
         "history": views.decision_history(s["allocations"], s["routes_by_id"]) if s["mode"] == "planner" else None,
         "transport_reliability": views.transport_delays(s["allocations"], s["routes_by_id"]) if s["mode"] == "planner" else [],

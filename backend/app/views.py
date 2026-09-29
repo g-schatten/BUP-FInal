@@ -144,6 +144,7 @@ def system_alerts(
     allocations: list[dict],
     degraded_reason: str | None,
     bottlenecks: dict[str, int] | None = None,
+    depots: list[dict] | None = None,
 ) -> list[dict]:
     out = []
 
@@ -157,6 +158,11 @@ def system_alerts(
         for fuel in FUEL_TYPES:
             if s["status"] == "OPEN" and s["inventory"].get(fuel, 0) <= 0:
                 add("critical", "stockout", f"{s['id']} is out of {fuel} now")
+
+    for d in depots or []:
+        for fuel in FUEL_TYPES:
+            if d["status"] in ("OPEN", "CONSTRAINED") and d["inventory"].get(fuel, 0) <= 0:
+                add("critical", "supply", f"{d['id']} has no {fuel} left to dispatch")
 
     for a in alerts:
         rec, hours = a["recommended_allocation"], a["projected_stockout_hours"]

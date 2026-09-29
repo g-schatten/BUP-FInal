@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react"
 import { api, type Depot, type FuelType, type Station } from "../api"
 import { Sparkline } from "../components/Sparkline"
-import { Card, FillBar, colors, table, td, th } from "../components/ui"
+import { Card, FillBar, Pill, colors, fmtL, table, td, th } from "../components/ui"
+
+const DEPOT_STATUS_TONE = { OPEN: "green", CONSTRAINED: "amber" } as const
 
 const FUELS: FuelType[] = ["DIESEL", "PETROL", "OCTANE"]
 
@@ -90,10 +92,15 @@ export function NetworkView({ stations, depots }: { stations: Station[]; depots:
             {depots.map((d) => (
               <tr key={d.id}>
                 <td style={td}>{d.name}</td>
-                <td style={td}>{d.status}</td>
+                <td style={td}>
+                  <Pill tone={DEPOT_STATUS_TONE[d.status as keyof typeof DEPOT_STATUS_TONE] ?? "gray"}>{d.status.toLowerCase()}</Pill>
+                </td>
                 {FUELS.map((f) => (
                   <td key={f} style={td}>
-                    <FillBar value={d.inventory[f] ?? 0} max={d.capacity[f] ?? 1} />
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <FillBar value={d.inventory[f] ?? 0} max={d.capacity[f] ?? 1} />
+                      <span style={{ fontSize: 12, color: colors.muted, whiteSpace: "nowrap" }}>{fmtL(d.inventory[f] ?? 0)}</span>
+                    </div>
                   </td>
                 ))}
               </tr>
